@@ -14,6 +14,11 @@
       private: false
 
   tasks:
+    - name: Check for NVIDIA GPU
+      ansible.builtin.command:
+        cmd: nvidia-smi
+      changed_when: false
+
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
