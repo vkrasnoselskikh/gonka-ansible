@@ -70,20 +70,23 @@
 
     - name: Download Qwen model
       ansible.builtin.command:
-        cmd: huggingface-cli download Qwen/Qwen3-235B-A22B-Instruct-2507-FP8
+        cmd: huggingface-cli download Qwen/Qwen3-32B-FP8
       become: false
+      changed_when: true
 
     - name: 1. [Server] Pull Docker Images (Containers)
       ansible.builtin.command:
         cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml pull
         chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
       become: false
+      changed_when: true
 
     - name: 2. [Server] Start Initial Services
       ansible.builtin.command:
         cmd: docker compose up tmkms node -d --no-deps
         chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
       become: false
+      changed_when: true
 
     - name: Wait for node to initialize
       ansible.builtin.pause:
@@ -95,6 +98,7 @@
         chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
       become: false
       register: node_logs
+      changed_when: false
 
     - name: Display node container logs
       ansible.builtin.debug:
@@ -103,11 +107,16 @@
     - name: 3.1. [Server] Create ML Operational Key
       ansible.builtin.shell:
         cmd: |
-          printf '%s\n%s\n' "{{ keyring_password }}" "{{ keyring_password }}" | docker compose run --rm --no-deps api inferenced keys add "{{ key_name }}" --keyring-backend file
+          set -o pipefail
+          printf '%s\n%s\n' "{{ keyring_password }}" "{{ keyring_password }}" | \
+          docker compose run --rm --no-deps api \
+          inferenced keys add "{{ key_name }}" --keyring-backend file
         chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
+        executable: /bin/bash
       become: false
       register: key_output
       no_log: true
+      changed_when: true
 
     - name: Display Key Info and Wait
       ansible.builtin.pause:
@@ -122,8 +131,20 @@
           ============================================================
           Press ENTER only after you have safely copied the data.
 
+    - name: Run inference grant-ml-ops-permissions command
+      ansible.builtin.pause:
+        prompt: |
+          ./inferenced tx inference grant-ml-ops-permissions \
+              gonka-account-key \
+              <ml-operational-key-address-from-step-3.1> \
+              --from gonka-account-key \
+              --keyring-backend file \
+              --gas 2000000 \
+              --node http://node2.gonka.ai:8000/chain-rpc/
+
     - name: 4. [Server] Launch Full Node
       ansible.builtin.command:
         cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml up -d
         chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
       become: false
+      changed_when: true
