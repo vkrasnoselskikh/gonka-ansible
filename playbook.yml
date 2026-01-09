@@ -61,6 +61,7 @@
         src: templates/node-config.json
         dest: "{{ join_dir }}/node-config.json"
         mode: "0644"
+      tags: update_config
 
     - name: Install huggingface-hub
       ansible.builtin.pip:
