@@ -58,8 +58,8 @@
 
     - name: Copy node_config.json
       ansible.builtin.copy:
-        src: templates/node_config.json
-        dest: "{{ join_dir }}/node_config.json"
+        src: templates/node-config.json
+        dest: "{{ join_dir }}/node-config.json"
         mode: "0644"
 
     - name: Install huggingface-hub

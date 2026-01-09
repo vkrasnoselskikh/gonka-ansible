@@ -1,0 +1,17 @@
+---
+- name: Extract status node
+  hosts: gonka_server
+  vars:
+    user_dir: "/home/{{ ansible_user }}"
+    project_root: "{{ user_dir }}/gonka"
+    join_dir: "{{ project_root }}/deploy/join"
+  tasks:
+    - name: Fetch and display setup report
+      ansible.builtin.command:
+        cmd: curl -s http://127.0.0.1:9200/admin/v1/setup/report
+      register: setup_report
+      changed_when: false
+
+    - name: Display Setup Report
+      ansible.builtin.debug:
+        msg: "{{ setup_report.stdout | from_json }}"
