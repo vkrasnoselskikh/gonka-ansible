@@ -1,28 +1,28 @@
 ---
 - name: Deploy and configure Gonka server
   hosts: gonka_server
-  become: true
-  vars_prompt:
-    - name: key_name
-      prompt: "Enter your KEY_NAME"
-      private: false
-    - name: keyring_password
-      prompt: "Enter your KEYRING_PASSWORD"
-      private: true
-    - name: account_pubkey
-      prompt: "Enter your ACCOUNT_PUBKEY"
-      private: false
+  become: false
+  vars:
+    user_dir: "/home/{{ ansible_user }}"
+    project_root: "{{ user_dir }}/gonka"
+    join_dir: "{{ project_root }}/deploy/join"
 
   tasks:
-    - name: Check for NVIDIA GPU
+    - name: Run nvidia-smi
       ansible.builtin.command:
         cmd: nvidia-smi
       changed_when: false
+      register: command_output_nvidia_smi
+
+    - name: Print the output
+      ansible.builtin.debug:
+        var: command_output_nvidia_smi.stdout_lines
 
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
       changed_when: false
+      become: true
 
     - name: Install prerequisites (git, docker, python3-pip)
       ansible.builtin.apt:
@@ -35,38 +35,32 @@
           - docker-compose-plugin
           - python3-pip
         state: present
+      become: true
 
     - name: Add user to docker group
       ansible.builtin.user:
         name: "{{ ansible_user }}"
         groups: docker
         append: true
-
-    - name: Install pip for python3
-      ansible.builtin.apt:
-        name: python3-pip
-        state: present
+      become: true
 
     - name: Clone gonka repository
       ansible.builtin.git:
         repo: "https://github.com/gonka-ai/gonka.git"
-        dest: "{{ ansible_env.HOME }}/gonka"
+        dest: "{{ project_root }}"
         version: main
-      become: false
 
     - name: Create .env file
       ansible.builtin.template:
         src: templates/env.j2
-        dest: "{{ ansible_env.HOME }}/gonka/deploy/join/.env"
+        dest: "{{ join_dir }}/.env"
         mode: "0600"
-      become: false
 
     - name: Copy node_config.json
       ansible.builtin.copy:
         src: templates/node_config.json
-        dest: "{{ ansible_env.HOME }}/gonka/deploy/join/node_config.json"
+        dest: "{{ join_dir }}/node_config.json"
         mode: "0644"
-      become: false
 
     - name: Install huggingface-hub
       ansible.builtin.pip:
@@ -75,22 +69,19 @@
 
     - name: Download Qwen model
       ansible.builtin.command:
-        cmd: huggingface-cli download Qwen/Qwen3-32B-FP8
-      become: false
+        cmd: hf download Qwen/Qwen3-32B-FP8
       changed_when: true
 
-    - name: 1. [Server] Pull Docker Images (Containers)
+    - name: Pull Docker Images
       ansible.builtin.command:
         cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml pull
-        chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
-      become: false
+        chdir: "{{ join_dir }}"
       changed_when: true
 
-    - name: 2. [Server] Start Initial Services
+    - name: Start tmkms and node services
       ansible.builtin.command:
         cmd: docker compose up tmkms node -d --no-deps
-        chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
-      become: false
+        chdir: "{{ join_dir }}"
       changed_when: true
 
     - name: Wait for node to initialize
@@ -100,8 +91,7 @@
     - name: Get node container logs
       ansible.builtin.command:
         cmd: docker compose logs node
-        chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
-      become: false
+        chdir: "{{ join_dir }}"
       register: node_logs
       changed_when: false
 
@@ -109,16 +99,15 @@
       ansible.builtin.debug:
         var: node_logs.stdout_lines
 
-    - name: 3.1. [Server] Create ML Operational Key
+    - name: Create ML Operational Key
       ansible.builtin.shell:
         cmd: |
           set -o pipefail
-          printf '%s\n%s\n' "{{ keyring_password }}" "{{ keyring_password }}" | \
+          printf '%s\n%s\n' "{{ KEYRING_PASSWORD }}" "{{ KEYRING_PASSWORD }}" | \
           docker compose run --rm --no-deps api \
-          inferenced keys add "{{ key_name }}" --keyring-backend file
-        chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
+          inferenced keys add "{{ KEY_NAME }}" --keyring-backend file
+        chdir: "{{ join_dir }}"
         executable: /bin/bash
-      become: false
       register: key_output
       no_log: true
       changed_when: true
@@ -136,12 +125,16 @@
           ============================================================
           Press ENTER only after you have safely copied the data.
 
+    - name: Extract address
+      ansible.builtin.set_fact:
+        ml-operational-key-address: "{{ key_output.stdout | regex_search('address: (.*)', '\\1') | trim }}"
+
     - name: Run inference grant-ml-ops-permissions command
       ansible.builtin.pause:
         prompt: |
           ./inferenced tx inference grant-ml-ops-permissions \
               gonka-account-key \
-              <ml-operational-key-address-from-step-3.1> \
+              {{ ml-operational-key-address }} \
               --from gonka-account-key \
               --keyring-backend file \
               --gas 2000000 \
@@ -150,6 +143,5 @@
     - name: 4. [Server] Launch Full Node
       ansible.builtin.command:
         cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml up -d
-        chdir: "{{ ansible_env.HOME }}/gonka/deploy/join"
-      become: false
+        chdir: "{{ join_dir }}"
       changed_when: true
