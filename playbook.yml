@@ -125,9 +125,9 @@
           ============================================================
           Press ENTER only after you have safely copied the data.
 
-    - name: Extract address
+    - name: Extract ML Operational Key address
       ansible.builtin.set_fact:
-        ml-operational-key-address: "{{ key_output.stdout | regex_search('address: (.*)', '\\1') | trim }}"
+        ml-operational-key-address: "{{ key_output.stdout | regex_search('address: (.*)', '\\1') | first }}"
 
     - name: Run inference grant-ml-ops-permissions command
       ansible.builtin.pause:
@@ -140,7 +140,27 @@
               --gas 2000000 \
               --node http://node2.gonka.ai:8000/chain-rpc/
 
-    - name: 4. [Server] Launch Full Node
+    - name: Extract Consensus KEY address
+      ansible.builtin.command:
+        cmd: docker compose run --rm --entrypoint /bin/sh tmkms -c "tmkms-pubkey"
+        chdir: "{{ join_dir }}"
+      changed_when: false
+      register: tmkms_consensus_key
+
+    - name: Run submit-new-participant command
+      ansible.builtin.pause:
+        prompt: |
+          ./inferenced tx inference submit-new-participant \
+               http://{{ ansible_default_ipv4.address }}:8000 \
+              --validator-key {{ tmkms_consensus_key.stdout }} \
+              --keyring-backend file \
+              --unordered \
+              --from <gonka_cold_key> \
+              --timeout-duration 1m \
+              --node http://node2.gonka.ai:8000/chain-rpc/ \
+              --chain-id gonka-mainnet
+
+    - name: Launch Full Node
       ansible.builtin.command:
         cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml up -d
         chdir: "{{ join_dir }}"
