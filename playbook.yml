@@ -2,6 +2,7 @@
 - name: Deploy and configure Gonka server
   hosts: gonka_server
   become: false
+  gather_facts: true
   vars:
     user_dir: "/home/{{ ansible_user }}"
     project_root: "{{ user_dir }}/gonka"
@@ -141,6 +142,12 @@
               --gas 2000000 \
               --node http://node2.gonka.ai:8000/chain-rpc/
 
+    - name: Launch Full Node
+      ansible.builtin.command:
+        cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml up -d
+        chdir: "{{ join_dir }}"
+      changed_when: true
+
     - name: Extract Consensus KEY address
       ansible.builtin.command:
         cmd: docker compose run --rm --entrypoint /bin/sh tmkms -c "tmkms-pubkey"
@@ -152,7 +159,7 @@
       ansible.builtin.pause:
         prompt: |
           ./inferenced tx inference submit-new-participant \
-               http://{{ ansible_facts.default_ipv4.address }}:8000 \
+               http://{{ ansible_default_ipv4.address }}:8000 \
               --validator-key {{ tmkms_consensus_key.stdout }} \
               --keyring-backend file \
               --unordered \
@@ -160,9 +167,3 @@
               --timeout-duration 1m \
               --node http://node2.gonka.ai:8000/chain-rpc/ \
               --chain-id gonka-mainnet
-
-    - name: Launch Full Node
-      ansible.builtin.command:
-        cmd: docker compose -f docker-compose.yml -f docker-compose.mlnode.yml up -d
-        chdir: "{{ join_dir }}"
-      changed_when: true
