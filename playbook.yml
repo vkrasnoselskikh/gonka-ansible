@@ -129,18 +129,18 @@
 
     - name: Extract ML Operational Key address
       ansible.builtin.set_fact:
-        ml-operational-key-address: "{{ key_output.stdout | regex_search('address: (.*)', '\\1') | first }}"
+        ml_operational_key_address: "{{ key_output.stdout | regex_search('address: (.*)', '\\1') | first }}"
 
     - name: Run inference grant-ml-ops-permissions command
       ansible.builtin.pause:
         prompt: |
           ./inferenced tx inference grant-ml-ops-permissions \
               gonka-account-key \
-              {{ ml-operational-key-address }} \
+              {{ ml_operational_key_address }} \
               --from gonka-account-key \
               --keyring-backend file \
               --gas 2000000 \
-              --node http://node2.gonka.ai:8000/chain-rpc/
+              --node http://node3.gonka.ai:8000/chain-rpc/
 
     - name: Launch Full Node
       ansible.builtin.command:
@@ -165,5 +165,5 @@
               --unordered \
               --from <gonka_cold_key> \
               --timeout-duration 1m \
-              --node http://node2.gonka.ai:8000/chain-rpc/ \
+              --node http://node3.gonka.ai:8000/chain-rpc/ \
               --chain-id gonka-mainnet
